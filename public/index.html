@@ -1,0 +1,257 @@
+
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fahyan Anime</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;background:#101018;color:#f5f5fa;font-family:Arial,sans-serif}
+header{padding:22px 16px;background:#191927;border-bottom:1px solid #303044}
+h1{margin:0 0 16px;color:#a78bfa}
+main{max-width:1100px;margin:auto;padding:20px 14px}
+form{display:flex;gap:8px}
+input,button{padding:12px;border:0;border-radius:9px;font-size:15px}
+input{flex:1;min-width:0;background:#272738;color:white}
+button{background:#8b5cf6;color:white;cursor:pointer}
+h2{margin-top:24px}
+#status{color:#c4b5fd;margin:16px 0}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(145px,1fr));gap:15px}
+.card{background:#1d1d2c;border-radius:12px;overflow:hidden;cursor:pointer}
+.card img{width:100%;aspect-ratio:3/4;object-fit:cover;display:block;background:#303044}
+.card h3{font-size:14px;margin:10px;line-height:1.4}
+.card p{font-size:12px;color:#b8b8cc;margin:0 10px 12px}
+nav{display:flex;justify-content:center;gap:12px;margin:25px 0}
+nav button:disabled{opacity:.35;cursor:default}
+#detail{display:none;background:#202033;border-radius:12px;padding:16px;margin:20px 0}
+#detail img{width:120px;float:left;margin:0 15px 10px 0;border-radius:8px}
+#description{line-height:1.6;color:#ddd}
+footer{text-align:center;color:#888;padding:25px}
+</style>
+</head>
+<body>
+<header>
+  <h1>▶ Fahyan Anime</h1>
+  <form id="searchForm">
+    <input id="search" placeholder="Cari judul anime..." autocomplete="off">
+    <button type="submit">Cari</button>
+  </form>
+</header>
+
+<main>
+  <h2>Jelajahi Anime</h2>
+  <p>Temukan anime favoritmu.</p>
+  <div id="detail">
+    <button id="closeDetail">Tutup ✕</button>
+    <div style="clear:both;height:12px"></div>
+    <img id="detailImage" alt="Poster anime">
+    <h2 id="detailTitle"></h2>
+    <p id="detailMeta"></p>
+    <p id="description"></p>
+<h3>Daftar Episode</h3>
+<div id="episodeList"></div>
+    <div style="clear:both"></div>
+  </div>
+  <p id="status">Memuat katalog...</p>
+  <section id="catalog" class="grid"></section>
+  <nav>
+    <button id="prev">← Sebelumnya</button>
+    <span id="pageLabel" style="align-self:center">Halaman 1</span>
+    <button id="next">Berikutnya →</button>
+  </nav>
+</main>
+<footer>Fahyan Anime · Informasi anime dari AniList</footer>
+
+<script>
+const API = "https://graphql.anilist.co";
+const $ = id => document.getElementById(id);
+let page = 1;
+let keyword = "";
+let busy = false;
+
+const query = `
+query ($page: Int, $search: String) {
+  Page(page: $page, perPage: 20) {
+    pageInfo { hasNextPage }
+    media(type: ANIME, sort: POPULARITY_DESC, search: $search) {
+      id
+      title { romaji english }
+      coverImage { large }
+      episodes
+      seasonYear
+      averageScore
+      format
+      description(asHtml: false)
+      genres
+    }
+  }
+}`;
+
+function make(tag, cls, text) {
+  const el = document.createElement(tag);
+  if (cls) el.className = cls;
+  if (text !== undefined) el.textContent = text;
+  return el;
+}
+
+async function loadAnime() {
+  if (busy) return;
+  busy = true;
+  $("status").textContent = "Memuat katalog...";
+  $("catalog").replaceChildren();
+  $("prev").disabled = true;
+  $("next").disabled = true;
+
+  try {
+    const response = await fetch(API, {
+      method: "POST",
+      headers: {"Content-Type":"application/json", "Accept":"application/json"},
+      body: JSON.stringify({
+        query,
+        variables: {page, search: keyword || null}
+      })
+    });
+
+    if (!response.ok) throw new Error("HTTP " + response.status);
+
+    const json = await response.json();
+    if (json.errors) throw new Error(json.errors[0].message);
+
+    const result = json.data.Page;
+    const anime = result.media;
+
+    if (!anime.length) {
+      $("status").textContent = "Anime tidak ditemukan. Coba kata kunci lain.";
+      return;
+    }
+
+    for (const item of anime) {
+      const title = item.title.english || item.title.romaji || "Tanpa judul";
+      const card = make("article", "card");
+      card.append(make("img", "", undefined));
+      const img = card.querySelector("img");
+      img.src = item.coverImage.large;
+      img.alt = "Poster " + title;
+      img.loading = "lazy";
+
+      card.append(make("h3", "", title));
+      card.append(make("p", "", [
+        item.seasonYear || "Tahun tidak diketahui",
+        item.episodes ? item.episodes + " episode" : "Jumlah episode belum diketahui",
+        item.averageScore ? "Skor " + (item.averageScore / 10).toFixed(1) : ""
+      ].filter(Boolean).join(" · ")));
+
+      card.addEventListener("click", () => showDetail(item));
+      $("catalog").append(card);
+    }
+
+    $("status").textContent = "Ditemukan " + anime.length + " anime.";
+    $("prev").disabled = page <= 1;
+    $("next").disabled = !result.pageInfo.hasNextPage;
+    $("pageLabel").textContent = "Halaman " + page;
+  } catch (error) {
+    console.error(error);
+    $("status").textContent = "Katalog gagal dimuat: " + error.message;
+  } finally {
+    busy = false;
+  }
+}
+
+
+ 
+function showDetail(item) {
+  $("detail").style.display = "block";
+
+  const title =
+    item.title.english || item.title.romaji || "Tanpa judul";
+
+  $("detailTitle").textContent = title;
+  $("detailImage").src = item.coverImage.large;
+
+  $("detailMeta").textContent = [
+    item.seasonYear || "",
+    item.format || "",
+    item.episodes ? item.episodes + " episode" : "",
+    item.averageScore
+      ? "Skor " + (item.averageScore / 10).toFixed(1)
+      : "",
+    item.genres.join(", ")
+  ].filter(Boolean).join(" · ");
+
+  $("description").textContent =
+    item.description || "Sinopsis belum tersedia.";
+
+  const list = $("episodeList");
+  list.replaceChildren();
+
+  if (!item.episodes) {
+    list.textContent = "Jumlah episode belum tersedia.";
+  } else {
+    for (let i = 1; i <= item.episodes; i++) {
+      const row = document.createElement("div");
+      row.style.cssText =
+        "display:flex;justify-content:space-between;" +
+        "align-items:center;gap:10px;padding:10px 0;" +
+        "border-bottom:1px solid #39394a";
+
+      const label = document.createElement("span");
+      label.textContent = "Episode " + i;
+
+      const button = document.createElement("button");
+      button.textContent = "Cari tontonan ↗";
+
+      button.addEventListener("click", () => {
+        const url =
+          "https://www.google.com/search?q=" +
+          encodeURIComponent(
+            title + " episode " + i + " streaming"
+          );
+
+        window.open(url, "_blank", "noopener");
+      });
+
+      row.append(label, button);
+      list.append(row);
+    }
+  }
+
+  $("detail").scrollIntoView({
+    behavior: "smooth",
+    block: "start"
+  });
+}
+
+
+
+$("closeDetail").addEventListener("click", () => {
+  $("detail").style.display = "none";
+});
+
+$("searchForm").addEventListener("submit", event => {
+  event.preventDefault();
+  keyword = $("search").value.trim();
+  page = 1;
+  loadAnime();
+});
+
+$("prev").addEventListener("click", () => {
+  if (page > 1 && !busy) {
+    page--;
+    loadAnime();
+    window.scrollTo({top:0, behavior:"smooth"});
+  }
+});
+
+$("next").addEventListener("click", () => {
+  if (!$("next").disabled && !busy) {
+    page++;
+    loadAnime();
+    window.scrollTo({top:0, behavior:"smooth"});
+  }
+});
+
+loadAnime();
+</script>
+</body>
+</html>
